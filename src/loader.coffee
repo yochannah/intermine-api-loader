@@ -31,6 +31,9 @@ loading = {}
 # Jobs executed.
 jobs = 0
 
+# Custom CDN root to load from if desired.
+loadRoot = 'http://cdn.intermine.org'
+
 # A new auto-loader.
 load = (resources, type, cb) ->
     job = ++jobs
@@ -59,7 +62,7 @@ load = (resources, type, cb) ->
     exit = (err) ->
         exited = true
         cb err
-    
+
     # Create the object for async.
     obj = {}
 
@@ -98,7 +101,7 @@ load = (resources, type, cb) ->
         log { 'job': job, 'library': key, 'message': 'will download' }
         obj[key] = (cb) ->
             log { 'job': job, 'library': key, 'message': 'downloading' }
-            
+
             # Give the loader this amount of time to download the lib.
             timeout = root.window.setTimeout ->
                 log { 'job': job, 'library': key, 'message': 'timed out' }
@@ -158,7 +161,7 @@ load = (resources, type, cb) ->
             for dep in depends when typeof(dep) isnt 'string' or not resources[dep]?
                 delete loading[key] # no more soup for you!
                 return exit "Unrecognized dependency `#{dep}`"
-            
+
             # Append our loader after the deps.
             return obj[key] = depends.concat obj[key]
 
@@ -171,7 +174,7 @@ load = (resources, type, cb) ->
     # Only get entries that depend on each other.
     for key, value of obj when value instanceof Array
         seen = {} # keep track of entries we have seen
-        
+
         # Resolve the dependency tree up until its leaf nodes.
         ( branch = (key) ->
             return if typeof key isnt 'string' # duplo check
@@ -193,6 +196,9 @@ load = (resources, type, cb) ->
     # Pass to async to work it all out.
     _auto obj, (err) -> if err then cb err else cb null
 
+intermine.setLoadRoot = (root) ->
+  loadRoot = root
+
 # Public interface that converts various types of input into the standard.
 intermine.load = (library, args...) ->
     # Callback always goes last.
@@ -206,11 +212,22 @@ intermine.load = (library, args...) ->
     # Old loaders might not have a callback defined, go plain.
     if typeof cb isnt 'function' then cb = ->
 
+    #this allows external cdns to use paths.yml too. this way we can
+    #default to cdn.intermine.org but don't hardcode to it.
+    getPath = (theLibrary, version) ->
+      thePath = loadRoot
+
+      #return false if there is no path set for the given args
+      return false unless paths[theLibrary] && paths[theLibrary][version]
+
+      #return the concatenated cdn+path if these is a value
+      return thePath + paths[theLibrary][version]
+
     # If library is a string and we have version defined, we are a "named" resource.
     if typeof library is 'string'
         # Do we know this library?
         return cb "Unknown library `#{library}`" unless paths[library]
-        return cb "Unknown `#{library}` version #{version}" unless (path = paths[library][version])
+        return cb "Unknown `#{library}` version #{version}" unless (path = getPath(library,version))
 
         o = {}
         o["intermine.#{library}"] = 'path': path
@@ -247,7 +264,7 @@ intermine.load = (library, args...) ->
     if typeof library is 'object'
         # We are going to be loading this many...
         i = _keys(library).length
-        
+
         # Have we exited already?
         exited = false
 
@@ -257,7 +274,7 @@ intermine.load = (library, args...) ->
             if err # you broken boy
                 exited = true
                 return cb err
-            
+
             return cb null if ( i-- and not !!i ) # are we there yet?
 
         # Launch them all.
